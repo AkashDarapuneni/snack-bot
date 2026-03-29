@@ -1,0 +1,19 @@
+name: Snack Checker
+on:
+  schedule:
+    # This runs every 15 mins between 4:00 PM and 5:00 PM IST
+    - cron: '30,45,00,15 10,11 * * *'
+  workflow_dispatch: # Allows you to test it manually
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Python Libraries
+        run: pip install requests beautifulsoup4
+      - name: Run Bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+        run: python bot.py
