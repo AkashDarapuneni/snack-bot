@@ -1,6 +1,7 @@
 import os
 import requests
-from bs4 import BeautifulSoup
+import json
+import re
 
 # GitHub Secrets
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -14,38 +15,53 @@ def send_telegram(text):
 
 def get_snacks():
     try:
-        # 1. Get the page
+        # 1. Get the page source
         response = requests.get(URL, timeout=15)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # 2. Get all text and clean it
-        all_text = soup.get_text(separator=' ')
-        
-        # 3. Check if it's still the "Waiting" screen
-        if "Cravings? Hold on!" in all_text:
+        html = response.text
+
+        # 2. Check for the "Waiting" message
+        if "Cravings? Hold on!" in html:
             print("Status: Waiting for update.")
             return
 
-        # 4. Extract the snack list
-        # We look for the common snack items usually served at Tulips
-        # This is a 'Safety Net' search
-        keywords = ["Biscuits", "tea", "milk", "Samosa", "Puff", "Chat", "Mysore Bajji"]
-        found_items = []
+        # 3. THE SECRET TRICK: Search for JSON data inside the HTML
+        # React often hides its data inside a <script> tag named __NEXT_DATA__ or similar
+        data_match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
         
-        for word in keywords:
-            if word.lower() in all_text.lower():
-                found_items.append(word.capitalize())
+        snack_text = ""
+        
+        if data_match:
+            # If it's a Next.js/React app, the data is right here!
+            json_data = json.loads(data_match.group(1))
+            # We look for common keys where the snack name might be hidden
+            # Since I can't see the exact JSON, we'll search the whole string for the snack name
+            full_json_str = json.dumps(json_data)
+            # Find the text between "snackName":" and "
+            name_match = re.search(r'"snackName":"(.*?)"', full_json_str)
+            if name_match:
+                snack_text = name_match.group(1)
+        
+        # 4. If the JSON trick fails, use a "Hard Search" for known items
+        if not snack_text:
+            # Look for common KLU snacks in the raw HTML string
+            common_items = ["Biscuits", "Tea", "Milk", "Samosa", "Puff", "Chat", "Bajji"]
+            found = [item for item in common_items if item.lower() in html.lower()]
+            if found:
+                snack_text = ", ".join(found)
 
-        # 5. Format the message
-        if found_items:
-            snack_str = ", ".join(found_items)
-            message = f"🥨 *TULIPS HOSTEL UPDATE*\n\n✅ *Today's Snack:* {snack_str}\n\n🔗 [Open Portal]({URL})"
+        # 5. Final Send
+        if snack_text:
+            message = (
+                f"🥨 *TULIPS HOSTEL: SNACK ALERT*\n\n"
+                f"✅ *Today's Menu:* {snack_text}\n\n"
+                f"🔗 [Open Portal]({URL})"
+            )
         else:
-            # If keywords fail, just send the raw text from the middle of the page
-            message = f"🥨 *SNACK UPDATE:* The menu has been updated! Check here: {URL}"
+            # Last resort if we still can't find the name
+            message = f"🥨 *SNACK UPDATE:* The menu is updated! Check here: {URL}"
 
         send_telegram(message)
-        print("Success: Message sent to Telegram.")
+        print(f"Success! Sent: {snack_text}")
 
     except Exception as e:
         print(f"Error: {e}")
