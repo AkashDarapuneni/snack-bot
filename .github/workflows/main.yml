@@ -2,13 +2,15 @@ name: Snack Monitor Bot
 
 on:
   schedule:
-    # Runs every 15 mins during the evening window (IST)
     - cron: '30,45,00,15 10,11 * * *'
   workflow_dispatch:
 
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
+    env:
+      # This line forces GitHub to use the new Node.js 24 as they requested
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -19,7 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Dependencies
-        run: pip install requests
+        run: pip install requests beautifulsoup4
 
       - name: Run Bot
         env:
