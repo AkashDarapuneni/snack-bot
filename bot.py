@@ -1,4 +1,5 @@
 import os
+import requests
 from requests_html import HTMLSession
 
 # GitHub Secrets
@@ -7,7 +8,6 @@ CHANNEL_ID = os.getenv("CHANNEL_ID")
 URL = "https://klu-snack-update.vercel.app"
 
 def send_telegram_message(text):
-    import requests
     api_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHANNEL_ID, "text": text, "parse_mode": "Markdown"}
     requests.post(api_url, data=payload)
@@ -16,33 +16,37 @@ def get_snack_details():
     session = HTMLSession()
     try:
         response = session.get(URL)
-        # This is the magic part: it runs the JavaScript on the page
-        # sleep=2 gives the React app 2 seconds to load the snacks
-        response.html.render(sleep=2)
+        # Give React 3 seconds to load the snacks
+        response.html.render(sleep=3)
 
-        # Check for the 'waiting' text in the rendered HTML
+        # Check if the "Hold on" message is still visible
         if "Cravings? Hold on!" in response.html.text:
-            print("Still waiting for update...")
+            print("Snacks not updated yet.")
             return
 
-        # Find all snack names (usually in h2 or h3 in these types of apps)
-        # Based on your screen, we'll look for headings inside the <main> tag
-        snacks = response.html.find('main h2, main h3, main p')
-        
-        found_list = []
-        for s in snacks:
-            name = s.text.strip()
-            # Filter out dates or generic titles
-            if name and "Snack" not in name and "2026" not in name:
-                found_list.append(f"• {name}")
+        # Find the snack names. We target text inside the <main> tag
+        main_content = response.html.find('main', first=True)
+        found_snacks = []
 
-        if found_list:
-            final_menu = "\n".join(found_list)
-            msg = f"🥨 *SNACK UPDATE!*\n\n✅ *Today's Menu:*\n{final_menu}\n\n🔗 [Open Site]({URL})"
-            send_telegram_message(msg)
+        if main_content:
+            # We look for h2, h3, or paragraphs that contain snack names
+            items = main_content.find('h2, h3, p')
+            for item in items:
+                name = item.text.strip()
+                # Skip the date and generic titles
+                if name and len(name) > 2 and "Snack" not in name and "2026" not in name:
+                    found_snacks.append(f"• {name}")
+
+        if found_snacks:
+            snack_list = "\n".join(found_snacks)
+            message = (
+                f"🥨 *NEW SNACK UPLOADED!*\n\n"
+                f"✅ *Today's Menu:*\n{snack_list}\n\n"
+                f"🔗 [Open Website]({URL})"
+            )
+            send_telegram_message(message)
         else:
-            # If no specific tags found, send a general alert
-            send_telegram_message(f"🥨 *Snacks are updated!* Check the site: {URL}")
+            print("Could not find specific snack names, though site is updated.")
 
     except Exception as e:
         print(f"Error: {e}")
