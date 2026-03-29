@@ -15,48 +15,48 @@ def send_telegram(text):
 def get_snacks():
     with sync_playwright() as p:
         try:
-            # Launch browser in headless mode (no window)
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             
-            # Go to the site and wait for the network to stop loading
+            # 1. Go to URL
             page.goto(URL, wait_until="networkidle")
             
-            # 1. Check if the "Wait" message is there
+            # 2. Check for "Waiting" state immediately
             if "Cravings? Hold on!" in page.content():
                 print("Status: Still waiting for snacks.")
                 return
 
-            # 2. Wait for the snack card to appear (The white box in your screenshot)
-            # We wait up to 10 seconds for the text to change from 'Loading' to actual snacks
-            page.wait_for_timeout(5000) 
-
-            # 3. Target the specific area where "Biscuits tea milk" is written
-            # Based on your screenshot, it's inside the main container
-            snack_element = page.locator("main") 
-            full_text = snack_element.inner_text()
-
-            # 4. Clean up the text
-            # We remove the date and the "Updated at" time to keep just the snacks
-            lines = [line.strip() for line in full_text.split('\n') if line.strip()]
+            # 3. CRITICAL STEP: Wait for the snack text to appear
+            # We wait for the element that contains the date or snack name
+            # This ensures Firebase has finished loading
+            page.wait_for_selector("main", timeout=15000)
             
-            # Usually, the snack names are the largest text or follow the date
-            # We filter out known UI words
-            bad_words = ["Sunday", "March", "2026", "Updated", "Verified", "students", "Evening Snack"]
-            final_snacks = [l for l in lines if not any(word in l for word in bad_words)]
+            # Give it 2 extra seconds just to be safe for slow connections
+            page.wait_for_timeout(2000)
 
-            if final_snacks:
-                snack_result = "\n".join([f"• {s}" for s in final_snacks])
+            # 4. Extract text from the main container
+            # We look for the h1/h2 tags where "Biscuits tea milk" usually sits
+            snack_text = page.locator("main").inner_text()
+            
+            # 5. Clean the data
+            lines = [line.strip() for line in snack_text.split('\n') if line.strip()]
+            
+            # Filter out UI noise (Dates, "Updated at", etc.)
+            ignore_list = ["Sunday", "March", "2026", "Updated", "Verified", "Snack"]
+            final_items = [l for l in lines if not any(word in l for word in ignore_list)]
+
+            if final_items:
+                menu = "\n".join([f"• {item}" for item in final_items])
                 message = (
-                    f"🥨 *TULIPS BOYS HOSTEL: SNACK ALERT*\n\n"
-                    f"✅ *Today's Menu:*\n{snack_result}\n\n"
+                    f"🥨 *TULIPS BOYS HOSTEL UPDATE*\n\n"
+                    f"✅ *Today's Menu:*\n{menu}\n\n"
                     f"🔗 [Open Portal]({URL})"
                 )
                 send_telegram(message)
-                print(f"Success! Sent: {snack_result}")
+                print(f"Success! Sent: {menu}")
             else:
-                # Fallback if text extraction is tricky
-                send_telegram(f"🥨 *SNACK UPDATE:* The menu is updated! Check here: {URL}")
+                # If we found the page updated but couldn't parse the words
+                send_telegram(f"🥨 *SNACK UPDATE:* Menu is updated! View here: {URL}")
 
             browser.close()
 
