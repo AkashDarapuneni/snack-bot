@@ -1,11 +1,11 @@
 import os
 import requests
+from bs4 import BeautifulSoup
 
 # GitHub Secrets
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
-# This is the actual data source for the Tulips Hostel portal
-DATA_URL = "https://klu-snack-update.vercel.app/data.json" 
+URL = "https://klu-snack-update.vercel.app"
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -14,39 +14,41 @@ def send_telegram(text):
 
 def get_snacks():
     try:
-        # 1. Get the raw data directly
-        response = requests.get(DATA_URL, timeout=10)
-        data = response.json()
-
-        # 2. Check if snacks are "Waiting" or "Ready"
-        # Most of these KLU portals use a status flag
-        if data.get("status") == "waiting" or "Cravings" in str(data):
-            print("Snacks not updated yet.")
+        # 1. Get the page
+        response = requests.get(URL, timeout=15)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 2. Get all text and clean it
+        all_text = soup.get_text(separator=' ')
+        
+        # 3. Check if it's still the "Waiting" screen
+        if "Cravings? Hold on!" in all_text:
+            print("Status: Waiting for update.")
             return
 
-        # 3. Get the snack name from the data file
-        # It is usually under a key like 'name', 'snack', or 'items'
-        snack_name = data.get("snackName") or data.get("items") or data.get("name")
+        # 4. Extract the snack list
+        # We look for the common snack items usually served at Tulips
+        # This is a 'Safety Net' search
+        keywords = ["Biscuits", "tea", "milk", "Samosa", "Puff", "Chat", "Mysore Bajji"]
+        found_items = []
         
-        if not snack_name:
-            # If the JSON format is different, we try to grab the first value
-            snack_name = list(data.values())[0]
+        for word in keywords:
+            if word.lower() in all_text.lower():
+                found_items.append(word.capitalize())
 
-        # 4. Send the message
-        message = (
-            f"🥨 *TULIPS BOYS HOSTEL: SNACK ALERT*\n\n"
-            f"✅ *Today's Menu:* {snack_name}\n\n"
-            f"🔗 [Open Portal](https://klu-snack-update.vercel.app)"
-        )
+        # 5. Format the message
+        if found_items:
+            snack_str = ", ".join(found_items)
+            message = f"🥨 *TULIPS HOSTEL UPDATE*\n\n✅ *Today's Snack:* {snack_str}\n\n🔗 [Open Portal]({URL})"
+        else:
+            # If keywords fail, just send the raw text from the middle of the page
+            message = f"🥨 *SNACK UPDATE:* The menu has been updated! Check here: {URL}"
+
         send_telegram(message)
-        print(f"Success! Notified about: {snack_name}")
+        print("Success: Message sent to Telegram.")
 
     except Exception as e:
-        # If the JSON trick fails, we use a simple text search as backup
-        print("JSON failed, trying text backup...")
-        r = requests.get("https://klu-snack-update.vercel.app")
-        if "Biscuits" in r.text or "Tea" in r.text:
-            send_telegram(f"🥨 *SNACK UPDATE:* Biscuits, Tea, Milk are ready!")
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
     get_snacks()
