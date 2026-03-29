@@ -1,6 +1,6 @@
 import os
 import requests
-from requests_html import HTMLSession
+import re
 
 # GitHub Secrets
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -10,56 +10,46 @@ URL = "https://klu-snack-update.vercel.app"
 def send_telegram(text):
     api_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHANNEL_ID, "text": text, "parse_mode": "Markdown"}
-    requests.post(api_url, data=payload)
+    try:
+        requests.post(api_url, data=payload)
+    except Exception as e:
+        print(f"Telegram error: {e}")
 
 def get_snacks():
-    # Adding a User-Agent makes the request look like a real browser
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
-    session = HTMLSession()
     try:
-        r = session.get(URL, headers=headers)
-        # Wait 5 seconds for React to inject the snack names
-        r.html.render(sleep=5, timeout=20)
+        # 1. Fetch the website
+        response = requests.get(URL, timeout=15)
+        html_content = response.text
 
-        # 1. Check if the "Wait" message is gone
-        if "Cravings? Hold on!" in r.html.text:
-            print("Snacks not yet uploaded.")
+        # 2. Check for the "Waiting" state
+        if "Cravings? Hold on!" in html_content:
+            print("Snacks not updated yet.")
             return
 
-        # 2. Find snack names specifically inside the <main> section
-        main_content = r.html.find('main', first=True)
-        if not main_content:
-            print("Could not find main content.")
-            return
-
-        # Get all headings and paragraphs
-        elements = main_content.find('h1, h2, h3, p')
-        found_snacks = []
+        # 3. Extract snack name
+        # We look for the text that appears between 'Sunday, March 29, 2026' and 'Updated at'
+        # Or we grab the most prominent text that isn't a UI element
+        snack_pattern = re.search(r'2026(.*?)Updated at', html_content, re.DOTALL | re.IGNORECASE)
         
-        for el in elements:
-            name = el.text.strip()
-            # Logic: Skip dates (2026), generic titles, and short noise
-            if name and len(name) > 2 and "Snack" not in name and "2026" not in name:
-                found_snacks.append(f"• {name}")
-
-        # 3. Send if we found items
-        if found_snacks:
-            # Use set() to remove any duplicate names found
-            unique_snacks = list(dict.fromkeys(found_snacks))
-            menu = "\n".join(unique_snacks)
-            msg = f"🥨 *TULIPS HOSTEL: SNACK ALERT*\n\n✅ *Today's Menu:*\n{menu}\n\n🔗 [Open Website]({URL})"
-            send_telegram(msg)
-            print("Success! Message sent.")
+        if snack_pattern:
+            snack_name = snack_pattern.group(1).strip()
+            # Clean up any HTML tags if they exist
+            snack_name = re.sub('<[^<]+?>', '', snack_name).strip()
         else:
-            print("Site updated but no snack names extracted.")
+            # Fallback: Just look for common snack words or the largest text block
+            snack_name = "New Snack Available (Check Site)!"
+
+        # 4. Final Notification
+        message = (
+            f"🥨 *TULIPS BOYS HOSTEL UPDATE*\n\n"
+            f"✅ *Today's Snack:* {snack_name}\n\n"
+            f"🔗 [Open Snack Portal]({URL})"
+        )
+        send_telegram(message)
+        print(f"Success! Found: {snack_name}")
 
     except Exception as e:
-        print(f"Error occurred: {e}")
-    finally:
-        session.close()
+        print(f"Script Error: {e}")
 
 if __name__ == "__main__":
     get_snacks()
