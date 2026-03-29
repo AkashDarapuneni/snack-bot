@@ -2,57 +2,57 @@ import requests
 from bs4 import BeautifulSoup
 import os
 
-# These variables are pulled from GitHub Secrets for security
+# Secrets from GitHub
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 URL = "https://klu-snack-update.vercel.app"
 
 def send_telegram_message(text):
-    """Sends a formatted message to your Telegram Channel."""
     api_url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHANNEL_ID,
-        "text": text,
-        "parse_mode": "Markdown"
-    }
-    try:
-        response = requests.post(api_url, data=payload)
-        response.raise_for_status()
-        print("Message sent successfully!")
-    except Exception as e:
-        print(f"Failed to send message: {e}")
+    payload = {"chat_id": CHANNEL_ID, "text": text, "parse_mode": "Markdown"}
+    requests.post(api_url, data=payload)
 
 def get_snack_details():
-    """Scrapes the website for updated snack info."""
     try:
         response = requests.get(URL)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # We check the full text of the page first
+        # 1. Check if the "Wait" message is still there
         page_text = soup.get_text()
-
-        # If the update hasn't happened yet, do nothing
         if "Cravings? Hold on!" in page_text:
-            print("Snacks not updated yet. Checking again later...")
+            print("Snacks not updated yet.")
             return
 
-        # If updated, we find the snack name
-        # Based on your screenshots, snacks are likely inside <h2> or <h3> tags
-        snacks = []
-        for header in soup.find_all(['h1', 'h2', 'h3']):
-            name = header.get_text().strip()
-            if name and "Cravings" not in name:
-                snacks.append(f"• {name}")
+        # 2. Extract specific snack names
+        # We target the <main> tag from your screenshot and look for headings or bold text
+        main_content = soup.find('main')
+        found_snacks = []
 
-        if snacks:
-            snack_list = "\n".join(snacks)
-            message = f"🥨 *TULIPS BOYS HOSTEL: SNACK UPDATE*\n\n✅ *Today's Menu:*\n{snack_list}\n\n🔗 [View on Website]({URL})"
-            send_telegram_message(message)
+        if main_content:
+            # Most likely the snack name is in an <h2>, <h3>, or a <span> with text
+            for item in main_content.find_all(['h2', 'h3', 'p']):
+                text = item.get_text().strip()
+                # We skip generic text like the date or "Today's Evening Snack"
+                if text and len(text) > 1 and "Snack" not in text and "2026" not in text:
+                    found_snacks.append(f"• {text}")
+
+        # 3. Format and Send
+        if found_snacks:
+            # This creates the list of actual snacks (e.g., Biscuits, Tea)
+            snack_list = "\n".join(found_snacks)
+            message = (
+                f"🥨 *NEW SNACK UPLOADED!*\n\n"
+                f"✅ *Today's Menu:*\n{snack_list}\n\n"
+                f"🔗 [Open Website]({URL})"
+            )
         else:
-            send_telegram_message(f"🥨 *Snacks are updated!* Check the site for details: {URL}")
+            # Fallback if we can't find specific tags
+            message = f"🥨 *Snacks are updated!* Check the site for details: {URL}"
+            
+        send_telegram_message(message)
 
     except Exception as e:
-        print(f"Error scraping website: {e}")
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
     get_snack_details()
